@@ -23,8 +23,8 @@ Este es un dashboard interactivo desarrollado en **Python** utilizando **Streaml
 
 1. **Clonar el repositorio:**
    ```bash
-   git clone [https://github.com/tu-usuario/nombre-del-repo.git](https://github.com/tu-usuario/nombre-del-repo.git)
-   cd nombre-del-repo
+   git clone [https://github.com/hectorj88/Mineria_de_datos.git](https://github.com/hectorj88/Mineria_de_datos.git)
+   cd Mineria_de_datos
 
 2. **Crear un entorno virtual (opcional pero recomendado):**
    ```bash
