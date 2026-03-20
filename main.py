@@ -128,6 +128,26 @@ if uploaded_file is not None:
     # Aplicamos el filtro al DataFrame
     df_filtrado = df_filtrado[df_filtrado['Discount Code'].isin(codigos_seleccionados)]
 
+    # --- FILTRO POR PRODUCTO (SELECCIÓN MÚLTIPLE) ---
+    st.sidebar.divider()
+    productos_disponibles = sorted(df['Lineitem name'].dropna().unique())
+    
+    productos_seleccionados = st.sidebar.multiselect(
+        "Filtrar por Producto(s)",
+        options=productos_disponibles,
+        default=[], # Vacío por defecto para no filtrar nada al inicio
+        help="Muestra los pedidos que contienen al menos uno de los productos seleccionados."
+    )
+
+    # Solo aplicamos el filtro si el usuario ha seleccionado algo
+    if productos_seleccionados:
+        # 1. Identificamos los IDs de pedido ('Name') que contienen CUALQUIERA de los productos elegidos
+        pedidos_interes = df[df['Lineitem name'].isin(productos_seleccionados)]['Name'].unique()
+        
+        # 2. Filtramos el DataFrame principal para mantener solo esos pedidos completos
+        df_filtrado = df_filtrado[df_filtrado['Name'].isin(pedidos_interes)]
+    
+
     # --- FILTRO POR TIEMPO DE RECOMPRA (DÍAS MÁXIMOS) ---
     st.sidebar.divider()
     st.sidebar.header("Filtro de Recurrencia")
@@ -145,7 +165,7 @@ if uploaded_file is not None:
     max_dias_dataset = int(df_temp_rec['Dias_Entre_Compras'].max()) if not df_temp_rec['Dias_Entre_Compras'].dropna().empty else 365
 
     dias_limite = st.sidebar.number_input(
-        "Ver clientes que volvieron en máximo (días):",
+        "Ver clientes que volvieron en máximo de (días):",
         min_value=1,
         max_value=max_dias_dataset,
         value=max_dias_dataset,
@@ -169,7 +189,7 @@ if uploaded_file is not None:
     # --- Grafica ventas e ingresos por mes ---
     ######################################################################################
     st.divider()
-    st.subheader("📅 Evolución Mensual y Crecimiento (MoM)")
+    st.subheader("📅 Evolución Mensual y Crecimiento")
     
     # 1. Preparación de datos
     df_filtrado['Created at'] = pd.to_datetime(df_filtrado['Created at'], errors='coerce')
@@ -236,6 +256,52 @@ if uploaded_file is not None:
         fig_var_ing.update_traces(textposition='outside')
         st.plotly_chart(fig_var_ing, use_container_width=True)
     
+    ######################################################################################
+    # --- ANÁLISIS DE TICKET PROMEDIO MENSUAL Y VARIACIÓN ---
+    ######################################################################################
+    st.markdown("#### 💸 Ticket Promedio Mensual y Variación %")
+
+    # 1. Preparar datos de Ticket Promedio por Mes
+    # Agrupamos por Pedido (Name) y Mes para obtener el Total de cada venta única
+    df_tickets = df_filtrado.groupby(['Mes_Anio', 'Name'])['Total'].first().reset_index()
+
+    # Ahora calculamos el promedio de esos totales por mes
+    df_ticket_mensual = df_tickets.groupby('Mes_Anio')['Total'].mean().reset_index()
+    df_ticket_mensual.columns = ['Mes', 'Ticket Promedio']
+
+    # 2. Calcular Variación Porcentual del Ticket Promedio
+    df_ticket_mensual['Var % Ticket'] = df_ticket_mensual['Ticket Promedio'].pct_change() * 100
+
+    # --- RENDERIZADO DE GRÁFICAS ---
+    col_t1, col_t2 = st.columns(2)
+
+    with col_t1:
+        # Histograma de frecuencia (Evolución del Ticket)
+        fig_ticket_evol = px.bar(
+            df_ticket_mensual, 
+            x='Mes', 
+            y='Ticket Promedio',
+            title="Evolución Ticket Promedio ($)",
+            text_auto='.2s',
+            color_discrete_sequence=['#00CC96']
+        )
+        fig_ticket_evol.update_layout(yaxis_tickformat='$')
+        st.plotly_chart(fig_ticket_evol, use_container_width=True)
+
+    with col_t2:
+        # Variación % del Ticket Promedio
+        fig_var_ticket = px.bar(
+            df_ticket_mensual.dropna(subset=['Var % Ticket']),
+            x='Mes',
+            y='Var % Ticket',
+            title="% Cambio en Ticket Promedio (vs mes anterior)",
+            text=df_ticket_mensual['Var % Ticket'].dropna().apply(lambda x: f'{x:.1f}%'),
+            color='Var % Ticket',
+            color_continuous_scale='RdYlGn',
+            color_continuous_midpoint=0
+        )
+        fig_var_ticket.update_traces(textposition='outside')
+        st.plotly_chart(fig_var_ticket, use_container_width=True)
     
 
     
@@ -289,7 +355,7 @@ if uploaded_file is not None:
 
     with col_left:
         st.subheader("🏆 Top 10 Productos Más Vendidos")
-        top_productos = df_filtrado.groupby('Lineitem name')['Lineitem quantity'].sum().sort_values(ascending=False).head(10).reset_index()
+        top_productos = df_filtrado.groupby('Lineitem name')['Lineitem quantity'].sum().sort_values(ascending=True).tail(10).reset_index()
         fig_prod = px.bar(top_productos, x='Lineitem quantity', y='Lineitem name', orientation='h', color='Lineitem quantity')
         st.plotly_chart(fig_prod, use_container_width=True)
 
@@ -300,9 +366,9 @@ if uploaded_file is not None:
         fig_city = px.pie(top_ciudades, values='Número de Pedidos', names='Ciudad', hole=0.4)
         st.plotly_chart(fig_city, use_container_width=True)
 
-######################################################################################
-# --- MINERÍA DE DATOS: COMBINACIONES MÁS VENDIDAS ---
-######################################################################################
+    ######################################################################################
+    # --- MINERÍA DE DATOS: COMBINACIONES MÁS VENDIDAS ---
+    ######################################################################################
     st.divider()
     st.subheader("🛒 Análisis de Canasta (Combinaciones Comunes)")
     st.info("Este análisis muestra qué productos suelen comprarse juntos en el mismo pedido.")
@@ -369,73 +435,58 @@ if uploaded_file is not None:
     df_pedidos_tiempo['Dias_Entre_Compras'] = (df_pedidos_tiempo['Created at'] - df_pedidos_tiempo['Fecha_Anterior']).dt.days
 
     # --- FILTRO CLAVE: Solo registros con 1 día o más ---
-    # Esto ignora la primera compra (NaN) y compras el mismo día (0)
     df_recompras_validas = df_pedidos_tiempo[df_pedidos_tiempo['Dias_Entre_Compras'] >= 1].copy()
 
     if not df_recompras_validas.empty:
-        # 3. Cálculos de métricas
-        avg_dias = df_recompras_validas['Dias_Entre_Compras'].mean()
-        min_dias = df_recompras_validas['Dias_Entre_Compras'].min()
-        max_dias = df_recompras_validas['Dias_Entre_Compras'].max()
-
-        # Identificar al cliente récord (el que volvió más rápido, mín. 1 día)
-        id_min_recompra = df_recompras_validas['Dias_Entre_Compras'].idxmin()
-        cliente_record_email = df_recompras_validas.loc[id_min_recompra, 'Email']
-        dias_record = df_recompras_validas.loc[id_min_recompra, 'Dias_Entre_Compras']
-
-        # Mostrar métricas en columnas
-        col_t1, col_t2, col_t3 = st.columns(3)
-        col_t1.metric("Tiempo Promedio Recompra", f"{avg_dias:.1f} días")
-        col_t2.metric("Mínimo entre Compras", f"{int(min_dias)} días")
-        col_t3.metric("Máximo entre Compras", f"{int(max_dias)} días")
+        # --- ELIMINACIÓN DE VALORES ATÍPICOS (MÉTODO IQR) ---
+        Q1 = df_recompras_validas['Dias_Entre_Compras'].quantile(0.25)
+        Q3 = df_recompras_validas['Dias_Entre_Compras'].quantile(0.75)
+        IQR = Q3 - Q1
         
-        # 4. Configuración del Histograma por grupos de 5 días
+        # Definimos los límites (1.5 es el estándar de la industria)
+        limite_inferior = Q1 - 1.5 * IQR
+        limite_superior = Q3 + 1.5 * IQR
+        
+        # Aplicamos el filtro para limpiar los datos
+        df_recompras_limpio = df_recompras_validas[
+            (df_recompras_validas['Dias_Entre_Compras'] >= limite_inferior) & 
+            (df_recompras_validas['Dias_Entre_Compras'] <= limite_superior)
+        ].copy()
+
+        # 3. Cálculos de métricas usando el DataFrame LIMPIO
+        avg_dias = df_recompras_limpio['Dias_Entre_Compras'].mean()
+        min_dias = df_recompras_limpio['Dias_Entre_Compras'].min()
+        max_dias = df_recompras_limpio['Dias_Entre_Compras'].max()
+
+        # Identificar al cliente récord (se mantiene del original o del limpio)
+        id_min_recompra = df_recompras_limpio['Dias_Entre_Compras'].idxmin()
+        cliente_record_email = df_recompras_limpio.loc[id_min_recompra, 'Email']
+        
+        # Mostrar métricas
+        col_t1, col_t2, col_t3 = st.columns(3)
+        col_t1.metric("Tiempo Promedio (Sin Atípicos)", f"{avg_dias:.1f} días")
+        col_t2.metric("Mínimo entre Compras", f"{int(min_dias)} días")
+        col_t3.metric("Máximo (Filtrado)", f"{int(max_dias)} días")
+        
+        # 4. Configuración del Histograma (Usando df_recompras_limpio)
         fig_dist_tiempo = px.histogram(
-            df_recompras_validas, 
+            df_recompras_limpio, 
             x='Dias_Entre_Compras',
-            title="Distribución de Recompras (Rangos de 5 días)",
-            labels={'Dias_Entre_Compras': 'Días transcurridos entre pedidos', 'count': 'Número de Recompras'},
+            title=f"Distribución de Recompras (Excluyendo valores > {int(limite_superior)} días)",
+            labels={'Dias_Entre_Compras': 'Días entre pedidos', 'count': 'Frecuencia'},
             color_discrete_sequence=['#AB63FA'],
-            text_auto=True # Muestra el número total sobre la barra
+            text_auto=True
         )
-
-        # Ajuste de los Bins (Agrupación)
-        fig_dist_tiempo.update_traces(
-            xbins=dict(
-                start=0,      # Empezar en el día 0
-                end=max_dias + 5, 
-                size=5        # Tamaño del grupo: 5 días
-            )
-        )
-
-        # Forzar que el eje X muestre marcas más claras
-        fig_dist_tiempo.update_layout(
-            bargap=0.1, # Espacio pequeño entre barras para que se vean separadas
-            xaxis=dict(tickmode='linear', tick0=0, dtick=5)
-        )
+        
+        # Ajuste dinámico de los Bins según el nuevo máximo
+        fig_dist_tiempo.update_traces(xbins=dict(start=0, end=max_dias + 5, size=5))
+        fig_dist_tiempo.update_layout(bargap=0.1, xaxis=dict(tickmode='linear', tick0=0, dtick=5))
 
         st.plotly_chart(fig_dist_tiempo, use_container_width=True)
-    else:
-        st.info("No hay suficientes datos de recompra (clientes que volvieran después de al menos 1 día).")
+        
+        st.caption(f"💡 Se han excluido automáticamente los valores por encima de {int(limite_superior)} días para no sesgar el promedio.")
     
-    # --- FILTRO NUEVO EN BARRA LATERAL: Máximo de días ---
-    st.sidebar.divider()
-    st.sidebar.header("Filtro de Recurrencia")
-    
-    # Determinamos el límite máximo actual para que el slider sea dinámico
-    max_dias_dataset = int(df_recompras_validas['Dias_Entre_Compras'].max()) if not df_recompras_validas.empty else 365
-    
-    dias_max_filtro = st.sidebar.number_input(
-        "Ver pedidos con recompra menor a (días):",
-        min_value=1,
-        max_value=max_dias_dataset,
-        value=max_dias_dataset,
-        help="Filtra el informe para ver solo clientes que volvieron a comprar en menos de X días."
-    )
 
-    # Aplicamos el filtro al DataFrame que usan las gráficas de tiempo y las sugerencias
-    df_recompras_validas = df_recompras_validas[df_recompras_validas['Dias_Entre_Compras'] <= dias_max_filtro]
-    
 
     ######################################################################################
     # --- ANÁLISIS DE CÓDIGOS DE DESCUENTO (FRECUENCIA Y %) ---
