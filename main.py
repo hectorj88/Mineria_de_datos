@@ -303,6 +303,76 @@ if uploaded_file is not None:
         fig_var_ticket.update_traces(textposition='outside')
         st.plotly_chart(fig_var_ticket, use_container_width=True)
     
+    ######################################################################################
+    # --- ANÁLISIS DE NUEVOS VS RECURRENTES (RETENCIÓN) ---
+    ######################################################################################
+    st.divider()
+    st.subheader("👥 Análisis de Nuevos Clientes y Retención")
+
+    # 1. Identificar la fecha de la primera compra histórica por cliente
+    # Usamos el dataframe original 'df' para asegurar que detectamos clientes antiguos 
+    # aunque no estén en el rango de fechas filtrado.
+    df_primeras_compras = df.groupby('Email')['Created at'].min().dt.to_period('M').reset_index()
+    df_primeras_compras.columns = ['Email', 'Mes_Primer_Compra']
+
+    # 2. Unir con el dataframe filtrado
+    df_retencion = df_filtrado.merge(df_primeras_compras, on='Email', how='left')
+
+    # 3. Crear columna del mes actual del pedido (como Periodo para comparar)
+    df_retencion['Mes_Pedido_Period'] = df_retencion['Created at'].dt.to_period('M')
+
+    # 4. Clasificar: Si el mes del pedido coincide con su primer compra de la historia, es Nuevo
+    # Usamos np.where para mayor velocidad
+    import numpy as np
+    df_retencion['Tipo_Cliente'] = np.where(
+        df_retencion['Mes_Pedido_Period'] == df_retencion['Mes_Primer_Compra'], 
+        'Nuevo', 
+        'Recurrente'
+    )
+
+    # 5. Agrupar para la gráfica
+    df_segmentado = df_retencion.groupby(['Mes_Anio', 'Tipo_Cliente'])['Name'].nunique().reset_index()
+    df_segmentado.columns = ['Mes', 'Tipo de Cliente', 'Cantidad de Pedidos']
+
+    # --- RENDERIZADO DE GRÁFICAS ---
+    col_ret1, col_ret2 = st.columns(2)
+
+    with col_ret1:
+        fig_segmentos = px.bar(
+            df_segmentado, 
+            x='Mes', 
+            y='Cantidad de Pedidos', 
+            color='Tipo de Cliente',
+            title="Nuevos vs. Recurrentes (Por Pedidos)",
+            barmode='stack',
+            color_discrete_map={'Nuevo': '#636EFA', 'Recurrente': '#00CC96'},
+            text_auto=True
+        )
+        st.plotly_chart(fig_segmentos, use_container_width=True)
+
+    with col_ret2:
+        # Cálculo de Tasa de Retención Mensual
+        df_pivot = df_segmentado.pivot(index='Mes', columns='Tipo de Cliente', values='Cantidad de Pedidos').fillna(0)
+        
+        # Asegurarnos de que existan ambas columnas para evitar errores si no hay recurrentes
+        if 'Recurrente' not in df_pivot.columns: df_pivot['Recurrente'] = 0
+        if 'Nuevo' not in df_pivot.columns: df_pivot['Nuevo'] = 0
+        
+        df_pivot['Total'] = df_pivot['Nuevo'] + df_pivot['Recurrente']
+        df_pivot['% Retención'] = (df_pivot['Recurrente'] / df_pivot['Total']) * 100
+        
+        fig_rate = px.line(
+            df_pivot.reset_index(), 
+            x='Mes', 
+            y='% Retención',
+            title="Tasa de Retención Mensual (%)",
+            markers=True,
+            color_discrete_sequence=['#AB63FA']
+        )
+        fig_rate.update_layout(yaxis_range=[0, 100])
+        fig_rate.update_traces(text=df_pivot['% Retención'].apply(lambda x: f'{x:.1f}%'), hovertemplate='%{x}<br>Retención: %{y:.1f}%')
+        st.plotly_chart(fig_rate, use_container_width=True)
+    
 
     
     st.divider()
