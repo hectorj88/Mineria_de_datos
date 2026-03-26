@@ -2,7 +2,7 @@
 Dashboard de Análisis de Ventas E-commerce
 ============================================
 Fuente de datos: Google Sheets (via drive.py -> actualizar())
-Ejecutar con: streamlit run main.py
+Ejecutar con: streamlit run main2.py
 """
 
 from drive import actualizar
@@ -260,6 +260,78 @@ with col_t2:
     fig_var_ticket = grafica_variacion(df_ticket_mensual, 'Var % Ticket', "% Cambio en Ticket Promedio (vs mes anterior)")
     fig_var_ticket.update_traces(textposition='outside')
     st.plotly_chart(fig_var_ticket, use_container_width=True)
+
+######################################################################################
+# SECCIÓN: RENDIMIENTO PROMEDIO POR DÍA DE LA SEMANA
+######################################################################################
+st.divider()
+st.subheader("📅 Rendimiento Promedio por Día de la Semana")
+
+# 1. Preparar datos: Extraer día de la semana asegurando un registro único por pedido
+# Reutilizamos la lógica de agrupar por 'Name' para no duplicar ingresos por ítems
+df_dias = df_filtrado.groupby('Name').agg({
+    'Created at': 'first',
+    'Total': 'first'
+}).reset_index()
+
+# Extraer el número del día (0=Lunes, 6=Domingo) y el nombre
+df_dias['Dia_Num'] = df_dias['Created at'].dt.dayofweek
+df_dias['Día'] = df_dias['Created at'].dt.day_name()
+
+# Diccionario para traducir y asegurar el orden correcto en la gráfica
+mapping_dias = {
+    'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles',
+    'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
+}
+df_dias['Día'] = df_dias['Día'].map(mapping_dias)
+
+# 2. Calcular el denominador (cuántos "Lunes", "Martes", etc. hay en el rango filtrado)
+# Esto es vital para que sea un "Promedio" real y no solo una suma total
+dias_en_rango = df_filtrado['Created at'].dt.date.unique()
+conteo_dias_calendario = pd.Series([d.weekday() for d in dias_en_rango]).value_counts()
+
+# 3. Agrupar métricas por día
+df_stats_dia = df_dias.groupby(['Dia_Num', 'Día']).agg(
+    Total_Pedidos=('Name', 'count'),
+    Total_Ingresos=('Total', 'sum')
+).reset_index()
+
+# Calculamos el promedio: Total de eventos / Veces que ese día existió en el calendario
+df_stats_dia['Promedio Pedidos'] = df_stats_dia.apply(
+    lambda x: x['Total_Pedidos'] / conteo_dias_calendario.get(x['Dia_Num'], 1), axis=1
+)
+df_stats_dia['Promedio Ingresos'] = df_stats_dia.apply(
+    lambda x: x['Total_Ingresos'] / conteo_dias_calendario.get(x['Dia_Num'], 1), axis=1
+)
+
+# Ordenar explícitamente de Lunes (0) a Domingo (6)
+df_stats_dia = df_stats_dia.sort_values('Dia_Num')
+
+# 4. Renderizar Gráficas
+col_d1, col_d2 = st.columns(2)
+
+with col_d1:
+    fig_day_ped = px.bar(
+        df_stats_dia, x='Día', y='Promedio Pedidos',
+        title="Promedio de Pedidos (Lunes a Domingo)",
+        text_auto='.1f', color_discrete_sequence=['#636EFA']
+    )
+    # Evitar que Plotly reordene alfabéticamente
+    fig_day_ped.update_layout(xaxis={'categoryorder':'array', 'categoryarray':list(mapping_dias.values())})
+    st.plotly_chart(fig_day_ped, use_container_width=True)
+
+with col_d2:
+    fig_day_ing = px.bar(
+        df_stats_dia, x='Día', y='Promedio Ingresos',
+        title="Promedio de Ingresos (Lunes a Domingo)",
+        text_auto='.2s', color_discrete_sequence=['#00CC96']
+    )
+    fig_day_ing.update_layout(
+        yaxis_tickformat='$',
+        xaxis={'categoryorder':'array', 'categoryarray':list(mapping_dias.values())}
+    )
+    st.plotly_chart(fig_day_ing, use_container_width=True)
+
 
 ######################################################################################
 # SECCIÓN: NUEVOS CLIENTES VS RECURRENTES (RETENCIÓN)

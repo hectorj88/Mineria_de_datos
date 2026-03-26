@@ -6,7 +6,8 @@ Este es un dashboard interactivo desarrollado en **Python** utilizando **Streaml
 
 * **Limpieza Automática:** Procesa y rellena datos faltantes (ffill) agrupados por pedido.
 * **KPIs de Negocio:** Visualización instantánea de Ventas Totales, Ticket Promedio, Tasa de Recurrencia y más.
-* **Análisis Temporal:** Gráficos de evolución mensual con cálculo de crecimiento **MoM (Month-over-Month)**.
+* **Análisis Temporal y Estacional:** * Evolución mensual con cálculo de crecimiento **MoM (Month-over-Month)**.
+    * **Promedios por día de la semana:** Comparativa de pedidos e ingresos promedio de Lunes a Domingo para detectar picos de demanda.
 * **Minería de Datos:** Identificación de combinaciones de productos más frecuentes mediante el algoritmo de combinaciones de la cesta de compra.
 * **Filtros Dinámicos:** Segmentación por rango de fechas, ciudades, frecuencia de compra, códigos de descuento y tiempo de recompra.
 * **Análisis de Fidelización:** Seguimiento del uso de cupones y tiempos de retorno de clientes.
