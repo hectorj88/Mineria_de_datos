@@ -145,10 +145,10 @@ def actualizar():
         df = df.drop_duplicates(keep='first')
 
         # 3. Carga
-        cargar_datos("Ordenes", df)
+        #cargar_datos("Ordenes", df)
         
         # 4. Acción posterior (Solo se ejecuta si lo anterior no dio error)
-        limpiar_datos_hoja("Ordenes_Recientes")
+        #limpiar_datos_hoja("Ordenes_Recientes")
         print("\nProceso completado: Datos integrados y hoja reciente limpiada.")
 
         return df
